@@ -121,11 +121,16 @@ class World(btreedb4.FileBTreeDB4):
     TILES_X = 32
     TILES_Y = 32
     TILES_PER_REGION = TILES_X * TILES_Y
+    
+    METADATA_NAME_OFFSET = 8  # World width, height are stored first
+    METADATA_NAME_LENGTH = 13 # "WorldMetadata"
 
     def __init__(self, stream):
         super(World, self).__init__(stream)
         self._metadata = None
         self._metadata_version = None
+        self._width = 0
+        self.(height = 0
 
     def deserialize_data(self, data):
         return zlib.decompress(data)
@@ -140,14 +145,27 @@ class World(btreedb4.FileBTreeDB4):
     def get_metadata(self):
         if self._metadata:
             return self._metadata, self._metadata_version
+        
+        raw = self.get_raw(World.METADATA_KEY)
+        
+        # Check if data is gzipped
+        
+        name = raw[METADATA_NAME_OFFSET:METADATA_NAME_OFFSET + METADATA_NAME_LENGTH + 1]
+        # If the name is already readable, then we're fine
+        if name != 'WorldMetadata':
+            # Otherwise, try unzipping
+            raw = zlib.decompress(raw)
+            
+            name = raw[METADATA_NAME_OFFSET:METADATA_NAME_OFFSET + METADATA_NAME_LENGTH + 1]
+            # If it still doesn't match, it's an invalid or corrupt file
+            assert name == 'WorldMetadata', "ERROR: unable to determine metadata format!"
+        
+        stream = io.BytesIO(raw)
 
-        stream = io.BytesIO(self.get_raw(World.METADATA_KEY))
-
-        # Not sure what these values mean.
-        unknown_1, unknown_2 = struct.unpack('>ii', stream.read(8))
-
+        # Unpack world width and height
+        self._width, self._height = struct.unpack('>ii', stream.read(8))
+        
         name, version, data = sbon.read_document(stream)
-        assert name == 'WorldMetadata', 'Invalid world data'
 
         self._metadata = data
         self._metadata_version = version
