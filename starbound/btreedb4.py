@@ -137,6 +137,40 @@ class FileBTreeDB4(sbbf02.FileSBBF02):
         else:
             self.root_node, self.root_node_is_leaf = fields[2:4]
             self.other_root_node, self.other_root_node_is_leaf = fields[4:6]
+    
+    def deserialize(self):
+        """Deserializes a btreedb4 into a Python dictionary"""
+        data = dict()
+        block_number = file.root_node
+        
+        deserialize_helper(self, block_number, data)
+        
+        return data
+    
+    def deserialize_helper(self, block_number, data):
+        """Deserializes a btreedb4 Block"""
+    
+    block = file.get_block(block_number)
+    
+    # If it's an index, keep going
+    if isinstance(block, starbound.btreedb4.BTreeIndex):
+        for index, block_reference in enumerate(block.values):
+            deserialize_helper(file, block_reference, data)
+    
+    # If it's a leaf, get the keys
+    if isinstance(block, starbound.btreedb4.BTreeLeaf):
+        stream = starbound.btreedb4.LeafReader(file, block)
+        num_keys, = struct.unpack('>i', stream.read(4))
+        
+        try:
+            for _ in range(num_keys):
+                cur_key = stream.read(file.key_size)
+                assert cur_key not in data, "ERROR: two copies of key %s!" % cur_key
+                
+                value_length = starbound.sbon.read_varlen_number(stream)
+                data[cur_key] = stream.read(value_length)
+        except Exception, e:
+            print '!!! CORRUPT (%s)' % e
 
 
 class BTreeIndex(sbbf02.Block):
