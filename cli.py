@@ -56,6 +56,8 @@ def print_leaves(file, block_number=None, depth=0, prefix=None):
                 value_length = starbound.sbon.read_varlen_number(stream)
                 print indent + '%s = %s byte(s)' % (cur_key.encode('hex'), value_length)
                 value = stream.read(value_length)
+                if value_length == 0:
+                    print indent + '!!! ERROR: key of length 0 (%s)' % cur_key.encode('hex')
         except Exception, e:
             print indent + '!!! CORRUPT (%s)' % e
 
