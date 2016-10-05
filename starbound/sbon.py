@@ -2,6 +2,8 @@ import collections
 import struct
 
 
+import numbers
+
 # Override range with xrange when running Python 2.x.
 try:
     range = xrange
@@ -157,11 +159,76 @@ def write_bytes(stream, bytes):
     write_varlen_number(stream, len(bytes))
     stream.write(bytes)
 
+def write_document(stream, doc_tuple):
+    document = Document(doc_tuple[0], doc_tuple[1], doc_tuple[2])
+    
+    write_string(stream, document.name)
+
+    # Not sure what this byte is.
+    stream.write(b'\x01')
+    
+    stream.write(struct.pack('>i', document.version))
+    write_dynamic(stream, document.data)
+
+def write_document_list(stream, docs):
+    write_varlen_number(stream, len(docs))
+    for doc in docs:
+        write_document(stream, doc)
+
+def write_dynamic(stream, data):
+    if data == None:
+        stream.write(chr(1))
+        return
+    elif isinstance(data, float):
+        stream.write(chr(2))
+        format = '>d'
+    elif isinstance(data, bool):
+        stream.write(chr(3))
+        format = '?'
+    elif isinstance(data, numbers.Integral):
+        stream.write(chr(4))
+        write_varlen_number_signed(stream, data)
+        return
+    elif isinstance(data, unicode):
+        stream.write(chr(5))
+        write_string(stream, data)
+        return
+    elif isinstance(data, list):
+        stream.write(chr(6))
+        write_list(stream, data)
+        return
+    elif isinstance(data, dict):
+        stream.write(chr(7))
+        write_map(stream, data)
+        return
+    else:
+        raise ValueError('Unknown dynamic type %s' % type(data))
+    
+    # Anything that passes through is assumed to have set a format to pack.
+    stream.write(struct.pack(format, data))
+
+def write_list(stream, data):
+    write_varlen_number(stream, len(data))
+    for entry in data:
+        write_dynamic(stream, entry)
+
+def write_map(stream, data):
+    write_varlen_number(stream, len(data))
+
+    for key in data:
+        write_string(stream, key)
+        write_dynamic(stream, data[key])
+
+def write_string(stream, string):
+    write_bytes(stream, string.encode('utf-8'))
+
 def write_varlen_number(stream, value):
     if value == 0:
         stream.write(b'\x00')
         return
 
+    orig_value = value
+    
     pieces = []
     while value:
         x, value = value & 0b01111111, value >> 7
@@ -169,7 +236,7 @@ def write_varlen_number(stream, value):
             x |= 0b10000000
         pieces.insert(0, x)
         if len(pieces) > 4096:
-            raise ValueError('Number too large')
+            raise ValueError('Number %d too large' % orig_value)
 
     stream.write(struct.pack('%dB' % len(pieces), *pieces))
 
