@@ -1,140 +1,69 @@
-import collections
+# -*- coding: utf-8 -*-
+
 import struct
+import sys
 
 
-import numbers
-
-# Override range with xrange when running Python 2.x.
-try:
+if sys.version >= '3':
+    _int_type = int
+    _str_type = str
+    def _byte(x):
+        return bytes((x,))
+    def _items(d):
+        return d.items()
+else:
+    _int_type = (int, long)
+    _str_type = basestring
     range = xrange
-except:
-    pass
+    def _byte(x):
+        return chr(x)
+    def _items(d):
+        return d.iteritems()
 
-
-Document = collections.namedtuple('Document', ['name', 'version', 'data'])
-
-Tile = collections.namedtuple('Tile', [
-    'foreground_material',
-    'foreground_hue_shift',
-    'foreground_variant',
-    'foreground_sprite',
-    'foreground_sprite_hue_shift',
-    'background_material',
-    'background_hue_shift',
-    'background_variant',
-    'background_sprite',
-    'background_sprite_hue_shift',
-    'liquid',
-    'liquid_amount',
-    'liquid_pressure',
-    'liquid_unknown',
-    'collision',
-    'dungeon',
-    'biome',
-    'biome_2',
-    'indestructible',
-])
 
 def read_bytes(stream):
-    length = read_varlen_number(stream)
+    length = read_varint(stream)
     return stream.read(length)
 
-def read_document(stream, repair=False):
-    name = read_string(stream)
 
-    # Not sure what this part is.
-    assert stream.read(1) == b'\x01'
+def read_dynamic(stream):
+    type_id = ord(stream.read(1))
+    if type_id == 1:
+        return None
+    elif type_id == 2:
+        return struct.unpack('>d', stream.read(8))[0]
+    elif type_id == 3:
+        return stream.read(1) != b'\0'
+    elif type_id == 4:
+        return read_varint_signed(stream)
+    elif type_id == 5:
+        return read_string(stream)
+    elif type_id == 6:
+        return read_list(stream)
+    elif type_id == 7:
+        return read_map(stream)
+    raise ValueError('Unknown dynamic type 0x%02X' % type_id)
 
-    version = struct.unpack('>i', stream.read(4))[0]
-    data = read_dynamic(stream, repair)
 
-    return Document(name, version, data)
+def read_list(stream):
+    length = read_varint(stream)
+    return [read_dynamic(stream) for _ in range(length)]
 
-def read_document_list(stream):
-    length = read_varlen_number(stream)
-    return [read_document(stream) for _ in range(length)]
 
-def read_dynamic(stream, repair=False):
-    type = ord(stream.read(1))
-
-    try:
-        if type == 1:
-            return None
-        elif type == 2:
-            format = '>d'
-        elif type == 3:
-            format = '?'
-        elif type == 4:
-            return read_varlen_number_signed(stream)
-        elif type == 5:
-            return read_string(stream)
-        elif type == 6:
-            return read_list(stream, repair)
-        elif type == 7:
-            return read_map(stream, repair)
-        else:
-            raise ValueError('Unknown dynamic type 0x%02X' % type)
-    except:
-        if repair:
-            return None
-        raise
-
-    # Anything that passes through is assumed to have set a format to unpack.
-    return struct.unpack(format, stream.read(struct.calcsize(format)))[0]
-
-def read_fixlen_string(stream, length):
-    return stream.read(length).rstrip(b'\x00').decode('utf-8')
-
-def read_list(stream, repair=False):
-    length = read_varlen_number(stream)
-    return [read_dynamic(stream, repair) for _ in range(length)]
-
-def read_map(stream, repair=False):
-    length = read_varlen_number(stream)
-
+def read_map(stream):
+    length = read_varint(stream)
     value = dict()
     for _ in range(length):
         key = read_string(stream)
-        value[key] = read_dynamic(stream, repair)
-
+        value[key] = read_dynamic(stream)
     return value
+
 
 def read_string(stream):
     return read_bytes(stream).decode('utf-8')
 
-def read_string_list(stream):
-    """Optimized structure that doesn't have a type byte for every item.
 
-    """
-    length = read_varlen_number(stream)
-    return [read_string(stream) for _ in range(length)]
-
-def read_string_digest_map(stream):
-    """Special structure of string/digest pairs, used by the assets database.
-
-    """
-    length = read_varlen_number(stream)
-
-    value = dict()
-    for _ in range(length):
-        path = read_string(stream)
-        # Unnecessary whitespace.
-        stream.seek(1, 1)
-        digest = stream.read(32)
-        value[path] = digest
-
-    return value
-
-def read_tile(world_version, stream):
-    if world_version < 6:
-        values = struct.unpack('>hBBhBhBBhBBHBhBB?', stream.read(23))
-        values = values[:12] + (0, 0) + values[12:]
-    else:
-        # TODO: Figure out what the new values mean.
-        values = struct.unpack('>hBBhBhBBhBBffBBhBB?', stream.read(30))
-    return Tile(*values)
-
-def read_varlen_number(stream):
+def read_varint(stream):
     """Read while the most significant bit is set, then put the 7 least
     significant bits of all read bytes together to create a number.
 
@@ -146,100 +75,70 @@ def read_varlen_number(stream):
             return value << 7 | byte
         value = value << 7 | (byte & 0b01111111)
 
-def read_varlen_number_signed(stream):
-    value = read_varlen_number(stream)
 
+def read_varint_signed(stream):
+    value = read_varint(stream)
     # Least significant bit represents the sign.
     if value & 1:
         return -(value >> 1)
     else:
         return value >> 1
 
-def write_bytes(stream, bytes):
-    write_varlen_number(stream, len(bytes))
-    stream.write(bytes)
 
-def write_document(stream, doc_tuple):
-    document = Document(doc_tuple[0], doc_tuple[1], doc_tuple[2])
-    
-    write_string(stream, document.name)
+def write_bytes(stream, value):
+    write_varint(stream, len(value))
+    stream.write(value)
 
-    # Not sure what this byte is.
-    stream.write(b'\x01')
-    
-    stream.write(struct.pack('>i', document.version))
-    write_dynamic(stream, document.data)
 
-def write_document_list(stream, docs):
-    write_varlen_number(stream, len(docs))
-    for doc in docs:
-        write_document(stream, doc)
-
-def write_dynamic(stream, data):
-    if data == None:
-        stream.write(chr(1))
-        return
-    elif isinstance(data, float):
-        stream.write(chr(2))
-        format = '>d'
-    elif isinstance(data, bool):
-        stream.write(chr(3))
-        format = '?'
-    elif isinstance(data, numbers.Integral):
-        stream.write(chr(4))
-        write_varlen_number_signed(stream, data)
-        return
-    elif isinstance(data, unicode):
-        stream.write(chr(5))
-        write_string(stream, data)
-        return
-    elif isinstance(data, list):
-        stream.write(chr(6))
-        write_list(stream, data)
-        return
-    elif isinstance(data, dict):
-        stream.write(chr(7))
-        write_map(stream, data)
-        return
+def write_dynamic(stream, value):
+    if value is None:
+        stream.write(b'\x01')
+    elif isinstance(value, float):
+        stream.write(b'\x02')
+        stream.write(struct.pack('>d', value))
+    elif isinstance(value, bool):
+        stream.write(b'\x03\x01' if value else b'\x03\x00')
+    elif isinstance(value, _int_type):
+        stream.write(b'\x04')
+        write_varint_signed(stream, value)
+    elif isinstance(value, _str_type):
+        stream.write(b'\x05')
+        write_string(stream, value)
+    elif isinstance(value, list):
+        stream.write(b'\x06')
+        write_list(stream, value)
+    elif isinstance(value, dict):
+        stream.write(b'\x07')
+        write_map(stream, value)
     else:
-        raise ValueError('Unknown dynamic type %s' % type(data))
-    
-    # Anything that passes through is assumed to have set a format to pack.
-    stream.write(struct.pack(format, data))
+        raise ValueError('Cannot write value %r' % (value,))
 
-def write_list(stream, data):
-    write_varlen_number(stream, len(data))
-    for entry in data:
-        write_dynamic(stream, entry)
 
-def write_map(stream, data):
-    write_varlen_number(stream, len(data))
+def write_list(stream, value):
+    write_varint(stream, len(value))
+    for v in value:
+        write_dynamic(stream, v)
 
-    for key in data:
-        write_string(stream, key)
-        write_dynamic(stream, data[key])
 
-def write_string(stream, string):
-    write_bytes(stream, string.encode('utf-8'))
+def write_map(stream, value):
+    write_varint(stream, len(value))
+    for k, v in _items(value):
+        write_string(stream, k)
+        write_dynamic(stream, v)
 
-def write_varlen_number(stream, value):
-    if value == 0:
-        stream.write(b'\x00')
-        return
 
-    orig_value = value
-    
-    pieces = []
+def write_string(stream, value):
+    write_bytes(stream, value.encode('utf-8'))
+
+
+def write_varint(stream, value):
+    buf = _byte(value & 0b01111111)
+    value >>= 7
     while value:
-        x, value = value & 0b01111111, value >> 7
-        if len(pieces):
-            x |= 0b10000000
-        pieces.insert(0, x)
-        if len(pieces) > 4096:
-            raise ValueError('Number %d too large' % orig_value)
+        buf = _byte(value & 0b01111111 | 0b10000000) + buf
+        value >>= 7
+    stream.write(buf)
 
-    stream.write(struct.pack('%dB' % len(pieces), *pieces))
 
-def write_varlen_number_signed(stream, value):
-    has_sign = 1 if value < 0 else 0
-    write_varlen_number(stream, value << 1 | has_sign)
+def write_varint_signed(stream, value):
+    write_varint(stream, (-value << 1 | 1) if value < 0 else (value << 1))

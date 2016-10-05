@@ -141,9 +141,11 @@ class FileBTreeDB4(sbbf02.FileSBBF02):
     def deserialize(self):
         """Deserializes a btreedb4 into a Python dictionary"""
         data = dict()
-        block_number = self.root_node
+        data['root'] = dict()
+        data['alt_root'] = dict()
         
-        self.deserialize_helper(block_number, data)
+        self.deserialize_helper(self.root_node, data['root'])
+        self.deserialize_helper(self.other_root_node, data['alt_root'])
         
         return data
     
@@ -166,10 +168,10 @@ class FileBTreeDB4(sbbf02.FileSBBF02):
                 for _ in range(num_keys):
                     cur_key = stream.read(self.key_size)
                     hex_cur_key = binascii.b2a_hex(cur_key)
-                    assert cur_key not in data, "ERROR: two copies of key %s!" % hex_cur_key
+                    assert hex_cur_key not in data, "ERROR: two copies of key %s!" % hex_cur_key
                     
                     value_length = sbon.read_varlen_number(stream)
-                    data[hex_cur_key] = binascii.b2a_hex(stream.read(value_length))
+                    data[hex_cur_key] = stream.read(value_length)
             except Exception, e:
                 print '!!! CORRUPT (%s)' % e
 
