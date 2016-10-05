@@ -18,3 +18,11 @@ class FileSBVJ01(filebase.File):
 
         # Technically, we could already close the file at this point. Need to
         # think about this.
+    
+    def deserialize(self):
+        return self.data
+   
+    
+    def serialize(self, stream):
+        stream.write(b'SBVJ01')
+        sbon.write_document(stream, (self.identifier, self.version, self.data))
