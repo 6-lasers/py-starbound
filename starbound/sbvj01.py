@@ -1,27 +1,25 @@
+import struct
 from . import sbon
-from . import filebase
 
+class SBVJ01(object):
+    def __init__(self, stream):
+        self.stream = stream
 
-class FileSBVJ01(filebase.File):
-    def __init__(self, path):
-        super(FileSBVJ01, self).__init__(path)
-        self.data = None
+    def read_header(self):
+        self.stream.seek(0)
+        assert self.stream.read(6) == b'SBVJ01', 'Invalid file format'
+        
+        self.name = sbon.read_string(self.stream)
 
-    def initialize(self):
-        """Reads the file contents into a data dict.
+        # Not sure what this part is.
+        assert self.stream.read(1) == b'\x01'
 
-        """
-        super(FileSBVJ01, self).initialize()
-
-        assert self.read(6) == b'SBVJ01', 'Invalid file format'
-        self.identifier, self.version, self.data = sbon.read_document(self._stream)
-
-        # Technically, we could already close the file at this point. Need to
-        # think about this.
+        self.version, = struct.unpack('>i', self.stream.read(4))
+        self.data = sbon.read_dynamic(self.stream)
     
     def deserialize(self):
+        self.read_header()
         return self.data
-   
     
     def serialize(self, stream):
         stream.write(b'SBVJ01')
