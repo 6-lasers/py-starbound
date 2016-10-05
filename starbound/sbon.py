@@ -89,6 +89,14 @@ def write_bytes(stream, value):
     write_varint(stream, len(value))
     stream.write(value)
 
+def write_document(stream, name, version, data):
+    write_string(stream, name)
+
+    # Not sure what this part is.
+    stream.write(b'\x01')
+    
+    stream.write(struct.pack('>i', version))
+    write_dynamic(stream, data)
 
 def write_dynamic(stream, value):
     if value is None:
